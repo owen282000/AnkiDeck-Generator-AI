@@ -6,7 +6,6 @@ import random
 import time
 import re
 import sys
-from dotenv import load_dotenv
 from openai import OpenAI, RateLimitError
 
 # Create ConfigParser instance
@@ -295,7 +294,7 @@ if __name__ == "__main__":
     parser.add_argument('output_file', type=str, help="Path to the output .apkg file.")
     parser.add_argument('--api_key', type=str, help="OpenAI API key", default=config['openai'].get('api_key', 'openai_api_key'))
     parser.add_argument('--source_language', type=str, help="Source language", default=config['settings'].get('source_language', 'Spanish'))
-    parser.add_argument('--target_language', type=str, help="Target language", default=config['settings'].get('target_language', 'Dutch'))
+    parser.add_argument('--target_language', type=str, help="Target language", default=config['settings'].get('target_language', 'English'))
     parser.add_argument('-v', '--verbose', action='store_true', help="Increase output verbosity")
     
     # Parse arguments and run the main function
