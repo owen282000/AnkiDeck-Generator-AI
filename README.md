@@ -52,7 +52,7 @@ gato
 To generate an Anki deck, you can run the script like this:
 
 ```bash
-python your_script.py input.txt "Spanish-English Deck" output.apkg --api_key <your_api_key> --verbose
+python generator.py input.txt "Spanish-English Deck" output.apkg -v
 ```
 
 ### Optional Arguments:
