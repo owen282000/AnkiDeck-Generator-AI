@@ -142,7 +142,7 @@ def get_word_translation_and_example(word: str, api_key: str, source_language: s
                     f"Then generate an example sentence in {source_language} appropriate for a {proficiency} level learner. "
                     f"Only provide the following format: "
                     f"'{source_language} sentence ({target_language} sentence) ({target_language} word)'. "
-                    f"Make sure to use the articles where appropriate for the {target_language} word, "
+                    f"Make sure to use the articles if given in \"{word}\" for the {target_language} word, "
                     f"and avoid any extra explanations or comments in the response.")
 
             response = client.chat.completions.create(
