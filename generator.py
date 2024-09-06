@@ -138,12 +138,17 @@ def get_word_translation_and_example(word: str, api_key: str, source_language: s
                 print(f"Translating word '{word}' from {source_language} to {target_language}...")
 
             # Prompt to generate translation and example
-            prompt = (f"Translate the word '{word}' from {source_language} to {target_language}. "
-                    f"Then generate an example sentence in {source_language} appropriate for a {proficiency} level learner. "
-                    f"Only provide the following format: "
-                    f"'{source_language} sentence ({target_language} sentence) ({target_language} word)'. "
-                    f"Make sure to use the articles if given in \"{word}\" for the {target_language} word, "
-                    f"and avoid any extra explanations or comments in the response.")
+            prompt = (f"Translate the phrase or word '{word}' from {source_language} to {target_language}. "
+                    f"Generate an example sentence in {source_language} at a {proficiency} level that appropriately uses this phrase or word in context. "
+                    f"Provide the translation in the following format: '{source_language} sentence ({target_language} sentence) ({target_language} word/phrase)'. "
+                    f"Ensure that all articles (like 'the', 'a', or their equivalents in {target_language}) are only included when required by the grammar of {target_language}. "
+                    f"For uncountable nouns or proper names, omit articles. "
+                    f"Ensure proper capitalization for both the {target_language} sentence and the {target_language} word/phrase. "
+                    f"Do not add unnecessary articles or explanations in the output. "
+                    f"Handle multi-word expressions like full phrases (e.g., 'Vosotros sois') as a complete entity rather than translating individual words. "
+                    f"To be clear, the final output should follow this format exactly: "
+                    f"'{source_language} sentence ({target_language} sentence) ({target_language} word/phrase)', with no additional information or explanations.")
+
 
             response = client.chat.completions.create(
                 model=MODEL,
