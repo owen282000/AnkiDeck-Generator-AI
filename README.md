@@ -30,6 +30,7 @@ api_key = your_openai_api_key
 [settings]
 source_language = Spanish
 target_language = English
+proficiency = Beginner
 ```
 
 ### API Key Security
@@ -59,6 +60,7 @@ python generator.py input.txt "Spanish-English Deck" output.apkg -v
 - `--api_key`: Specify the OpenAI API key (overwrites the one in the `config.ini`).
 - `--source_language`: The source language for translations (default: Spanish).
 - `--target_language`: The target language for translations (default: English).
+- `--proficiency`: Set the proficiency level for the generated example sentences (e.g., Beginner, Advanced, Expert) (default: Beginner).
 - `--verbose`: Enable detailed logging output.
 
 ## Importing into Anki

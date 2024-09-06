@@ -4,3 +4,4 @@ api_key = openai_api_key
 [settings]
 source_language = Spanish
 target_language = English
+proficiency = Beginner

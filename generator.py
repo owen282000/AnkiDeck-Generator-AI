@@ -14,28 +14,37 @@ config = configparser.ConfigParser()
 # Read the config from 'config.ini' file
 config.read('config.ini')
 
+# Set the GPT-4o model
+MODEL = "gpt-4o"
+
 # Function to check if the API key is default (not set)
 def check_api_key(api_key: str):
+    """
+    Check if the API key is provided, else exit.
+    
+    Args:
+        api_key (str): The OpenAI API key.
+    """
     if api_key == 'openai_api_key':
         print("Error: Default API key found. Please provide a valid OpenAI API key.")
         sys.exit(1)
 
 def parse_input_file(input_file: str, verbose: bool = False) -> List[str]:
     """
-    Reads the input file and parses each line as an item (word/phrase).
+    Reads the input file and capitalizes each word/phrase.
     
     Args:
         input_file (str): Path to the input text file.
         verbose (bool): Whether to print debug information.
         
     Returns:
-        list: A list of words/phrases from the input file.
+        list: A list of capitalized words/phrases from the input file.
     """
     items: List[str] = []
     try:
         with open(input_file, 'r', encoding='utf-8') as file:
             for line in file:
-                line = line.strip()
+                line = line.strip().capitalize()  # Capitalize each word
                 if line:
                     items.append(line)
                     if verbose:
@@ -49,41 +58,78 @@ def parse_input_file(input_file: str, verbose: bool = False) -> List[str]:
         print(f"An error occurred: {e}")
     return items
 
-def extract_translation_from_example(example_sentence: str, verbose: bool = False) -> str:
+def is_valid_format(result: str, verbose: bool = False) -> bool:
     """
-    Extracts the target language translation from the example sentence by looking for text inside parentheses.
+    Check if the generated result follows the format: 'Source sentence (Target sentence) (Target word)'.
     
     Args:
-        example_sentence (str): The sentence containing both the source and target language versions.
+        result (str): The generated result to validate.
         verbose (bool): Whether to print debug information.
         
     Returns:
-        str: The extracted target language translation, or None if not found.
+        bool: True if the result is in the expected format, otherwise False.
     """
-    match = re.search(r'\(([^)]+)\)', example_sentence)
-    if match:
-        translation = match.group(1).strip()
+    # First check for proper parentheses balance
+    if result.count('(') != 2 or result.count(')') != 2:
         if verbose:
-            print(f"Extracted translation from example: {translation}")
-        return translation
+            print(f"Invalid result format: {result}")
+        return False
+    matches = re.findall(r'\(([^)]+)\)', result)
+    if len(matches) == 2:
+        if verbose:
+            print(f"Valid result format: {result}")
+        return True
     if verbose:
-        print(f"No translation found in the example sentence.")
-    return "No translation available"
+        print(f"Invalid result format: {result}")
+    return False
 
-def get_word_translation(word: str, api_key: str, source_language: str, target_language: str, verbose: bool = False, retries: int = 3) -> str:
+def parse_generated_response(result: str, verbose: bool = False) -> (str, str, str):
     """
-    Uses OpenAI to get a target language translation for the provided word in source language.
+    Extract the source sentence, target sentence, and target word from the generated result.
     
     Args:
-        word (str): The word/phrase for which to generate the target language translation.
+        result (str): The generated result in the format: 'Source sentence (Target sentence) (Target word)'.
+    
+    Returns:
+        tuple: source_sentence, target_sentence, target_word
+    """
+    try:
+        # Clean the source sentence by removing unwanted phrases
+        source_sentence = result.split('(')[0].strip()
+        target_sentence, target_word = re.findall(r'\(([^)]+)\)', result)
+        
+        # Remove any text that says "vertaalt naar", "hier is een voorbeeldzin", etc.
+        source_sentence = re.sub(r"vertaalt naar.*\n*.*voorbeeldzin.*", "", source_sentence).strip()
+        if verbose:
+            print(f"Cleaned source sentence: {source_sentence}")
+        
+        # Ensure the target word includes "De" or "Het" when necessary
+        if not target_word.istitle() and "de" not in target_word.lower() and "het" not in target_word.lower():
+            target_word = f"De {target_word}"
+        
+        return source_sentence, target_sentence.strip(), target_word.strip()
+    
+    except Exception as e:
+        if verbose:
+            print(f"Error parsing result: {e}")
+        return "Parsing error", "Parsing error", "Parsing error"
+
+
+def get_word_translation_and_example(word: str, api_key: str, source_language: str, target_language: str, proficiency: str, verbose: bool = False, retries: int = 3) -> str:
+    """
+    Uses GPT-4o to get a word translation and generate an example sentence.
+    
+    Args:
+        word (str): The word/phrase to translate and generate an example for.
         api_key (str): The OpenAI API key.
-        source_language (str): Source language of the word.
-        target_language (str): Target language to translate the word into.
+        source_language (str): The source language.
+        target_language (str): The target language.
+        proficiency (str): The proficiency level of the example sentence.
         verbose (bool): Whether to print debug information.
-        retries (int): Number of retries if a valid translation is not generated.
+        retries (int): Number of retries in case of failure.
         
     Returns:
-        str: The target language translation of the word.
+        str: The generated result with translation and example sentence.
     """
     client = OpenAI(api_key=api_key)
     for attempt in range(retries):
@@ -91,87 +137,42 @@ def get_word_translation(word: str, api_key: str, source_language: str, target_l
             if verbose:
                 print(f"Translating word '{word}' from {source_language} to {target_language}...")
 
-            # Prompt to translate the word from source_language to target_language
-            prompt = f"Translate the {source_language} word '{word}' to {target_language}."
-            
-            response = client.completions.create(
-                model="gpt-3.5-turbo-instruct",
-                prompt=prompt,
-                max_tokens=10
+            # Prompt to generate translation and example
+            prompt = (f"Translate the word '{word}' from {source_language} to {target_language}. "
+                    f"Then generate an example sentence in {source_language} appropriate for a {proficiency} level learner. "
+                    f"Only provide the following format: "
+                    f"'{source_language} sentence ({target_language} sentence) ({target_language} word)'. "
+                    f"Make sure to use the articles where appropriate for the {target_language} word, "
+                    f"and avoid any extra explanations or comments in the response.")
+
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.0
             )
-            translation = response.choices[0].text.strip()
+            result = response.choices[0].message.content.strip()
 
-            if verbose:
-                print(f"Translation: {translation}")
-            return translation
-        
-        except RateLimitError:
-            if attempt < retries - 1:
-                time.sleep(2 ** attempt)  # Exponential backoff
-            else:
-                print(f"Rate limit exceeded. Skipping translation for '{word}'.")
-                return f"Translation not available."
-    
-    return "Translation not available."
-
-def get_example_sentence(word: str, api_key: str, source_language: str, target_language: str, verbose: bool = False, retries: int = 3) -> str:
-    """
-    Uses OpenAI to generate an example sentence for the provided word in the specified language.
-    Ensures the sentence is at an appropriate difficulty level.
-
-    Args:
-        word (str): The word/phrase for which to generate the example sentence.
-        api_key (str): The OpenAI API key.
-        source_language (str): The source language.
-        target_language (str): The target language.
-        verbose (bool): Whether to print debug information.
-        retries (int): Number of retries if a valid example sentence is not generated.
-        
-    Returns:
-        str: The generated example sentence with a translation in parentheses.
-    """
-    client = OpenAI(api_key=api_key)
-    start_time = time.time()
-    for attempt in range(retries):
-        try:
-            if verbose:
-                print(f"Generating example sentence for '{word}' in {source_language}...")
-
-            # Dynamically use source and target languages
-            prompt = (
-                f"Generate a simple example sentence for the word '{word}' in {source_language}. "
-                f"The sentence should be appropriate for learners studying {source_language}. "
-                f"The format must be: '{source_language} sentence. ({target_language} sentence)'."
-            )
-
-            response = client.completions.create(
-                model="gpt-3.5-turbo-instruct",
-                prompt=prompt,
-                max_tokens=50
-            )
-            example_sentence = response.choices[0].text.strip()
-
-            if '(' in example_sentence and ')' in example_sentence:
-                elapsed_time = time.time() - start_time
-                if verbose:
-                    print(f"Example sentence: {example_sentence} (took {elapsed_time:.2f} seconds)")
-                return example_sentence
+            if is_valid_format(result, verbose):
+                return result
             else:
                 if verbose:
-                    print(f"No translation found. Retrying... (Attempt {attempt + 1})")
-
+                    print(f"Invalid format detected, retrying... (Attempt {attempt + 1})")
+        
         except RateLimitError:
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
             else:
-                print(f"Rate limit exceeded. Skipping example sentence for '{word}'.")
-                return "Example sentence not available due to limit."
+                print(f"Rate limit exceeded. Skipping translation and example for '{word}'.")
+                return "Translation and example not available."
 
-    return "Example sentence not available."
+    return "Translation and example not available."
 
-def create_anki_deck(items: List[str], api_key: str, source_language: str, target_language: str, deck_name: str, verbose: bool = False) -> genanki.Deck:
+def create_anki_deck(items: List[str], api_key: str, source_language: str, target_language: str, deck_name: str, proficiency: str, verbose: bool = False) -> genanki.Deck:
     """
-    Creates an Anki deck with source and target translations, including example sentences for each word/phrase.
+    Creates an Anki deck with translated words, target language, and example sentences.
     
     Args:
         items (list): List of words/phrases to process.
@@ -179,6 +180,7 @@ def create_anki_deck(items: List[str], api_key: str, source_language: str, targe
         source_language (str): The source language.
         target_language (str): The target language.
         deck_name (str): The name of the Anki deck to create.
+        proficiency (str): The proficiency level for the example sentence.
         verbose (bool): Whether to print debug information.
         
     Returns:
@@ -187,7 +189,6 @@ def create_anki_deck(items: List[str], api_key: str, source_language: str, targe
     deck_id = random.randint(1, 1 << 30)
     model_id = random.randint(1, 1 << 30)
 
-    # Define the Anki model with fields for source, target word translation, and example sentences
     deck = genanki.Deck(
         deck_id=deck_id,
         name=deck_name
@@ -231,23 +232,21 @@ def create_anki_deck(items: List[str], api_key: str, source_language: str, targe
         if verbose:
             print(f"\nProcessing item: {item}")
         
-        # Get the target translation of the source word
-        target_word_translation = get_word_translation(item, api_key, source_language, target_language, verbose)
+        # Get both translation and example sentence
+        translation_and_example = get_word_translation_and_example(item, api_key, source_language, target_language, proficiency, verbose)
         
-        # Generate an example sentence in source language
-        example_sentence_source = get_example_sentence(item, api_key, source_language, target_language, verbose)
+        source_sentence, target_sentence, target_word_translation = parse_generated_response(translation_and_example, verbose)
         
-        # Extract the target translation from the example sentence
-        target_sentence_translation = extract_translation_from_example(example_sentence_source, verbose)
-        
-        # Make sure no field is None; replace None with an empty string
-        example_sentence_clean_source = example_sentence_source.split('(')[0].strip() if example_sentence_source else ""
-        target_sentence_translation = target_sentence_translation if target_sentence_translation else ""
-        
-        # Add the note to the Anki deck with fields in source, target translation, and example sentences
+        if verbose:
+            print(f"Source word: {item}")
+            print(f"Target word: {target_word_translation}")
+            print(f"Source sentence: {source_sentence}")
+            print(f"Target sentence: {target_sentence}")
+
+        # Add the note to the Anki deck
         note = genanki.Note(
             model=model,
-            fields=[item, target_word_translation, example_sentence_clean_source, target_sentence_translation]
+            fields=[item, target_word_translation, source_sentence, target_sentence]
         )
         deck.add_note(note)
         if verbose:
@@ -259,9 +258,9 @@ def create_anki_deck(items: List[str], api_key: str, source_language: str, targe
 
     return deck
 
-def main(input_file: str, deck_name: str, output_file: str, api_key: str, source_language: str, target_language: str, verbose: bool = False) -> None:
+def main(input_file: str, deck_name: str, output_file: str, api_key: str, source_language: str, target_language: str, proficiency: str, verbose: bool = False) -> None:
     """
-    Main function to generate the Anki deck by reading input, creating cards, and saving the deck.
+    Main function to generate the Anki deck.
     
     Args:
         input_file (str): Path to the input text file.
@@ -270,6 +269,7 @@ def main(input_file: str, deck_name: str, output_file: str, api_key: str, source
         api_key (str): The OpenAI API key.
         source_language (str): The source language.
         target_language (str): The target language.
+        proficiency (str): The proficiency level for the example sentences.
         verbose (bool): Whether to print debug information.
     """
     check_api_key(api_key)
@@ -279,7 +279,7 @@ def main(input_file: str, deck_name: str, output_file: str, api_key: str, source
     
     # Parse the input items and create the Anki deck
     items = parse_input_file(input_file, verbose)
-    deck = create_anki_deck(items, api_key, source_language, target_language, deck_name, verbose)
+    deck = create_anki_deck(items, api_key, source_language, target_language, deck_name, proficiency, verbose)
     
     # Write the deck to the specified output file
     genanki.Package(deck).write_to_file(output_file)
@@ -294,9 +294,10 @@ if __name__ == "__main__":
     parser.add_argument('output_file', type=str, help="Path to the output .apkg file.")
     parser.add_argument('--api_key', type=str, help="OpenAI API key", default=config['openai'].get('api_key', 'openai_api_key'))
     parser.add_argument('--source_language', type=str, help="Source language", default=config['settings'].get('source_language', 'Spanish'))
-    parser.add_argument('--target_language', type=str, help="Target language", default=config['settings'].get('target_language', 'English'))
+    parser.add_argument('--target_language', type=str, help="Target language", default=config['settings'].get('target_language', 'Dutch'))
+    parser.add_argument('--proficiency', type=str, help="Proficiency level for example sentence (e.g., Beginner, Advanced, Expert)", default=config['settings'].get('proficiency', 'Beginner'))
     parser.add_argument('-v', '--verbose', action='store_true', help="Increase output verbosity")
     
     # Parse arguments and run the main function
     args = parser.parse_args()
-    main(args.input_file, args.deck_name, args.output_file, args.api_key, args.source_language, args.target_language, args.verbose)
+    main(args.input_file, args.deck_name, args.output_file, args.api_key, args.source_language, args.target_language, args.proficiency, args.verbose)
